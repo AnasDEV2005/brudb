@@ -20,7 +20,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-colon_db = { path = "../../simpledb" }
+colon_db = { path = "../../colondb" }
 ```
 </p>
 
