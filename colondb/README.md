@@ -1,5 +1,5 @@
 
-# colonDB | simpleDB with multiple functions support (database file store)
+# colonDB | simpleDB with multiple columns support (database file store)
 
 Checkout main folder for simple key value store.
 Make sure you clone this repo inside the directory you write in the cargo.toml's ``[dependencies]  simple_db = ...``
