@@ -8,6 +8,7 @@ May still contain issues, havent tested enough.
 ---
 ### usage
 
+I suggest typing in the first row, which will be used as headers to find stuff based on column headers, in the .txt file before dealing with data.
 <p>
 add to Cargo.toml <br>
 (edit the path as suits you)
