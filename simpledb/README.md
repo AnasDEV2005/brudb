@@ -7,7 +7,6 @@ May still contain issues, havent tested enough.
 
 ---
 ### usage
-(for now) <br>
 
 <p>
 add to Cargo.toml
