@@ -4,7 +4,7 @@ use std::io::{self, Write, BufReader, BufRead};
 use std::path::Path;
 
 pub struct SimpleDB {
-    data: HashMap<String, String>, // a hash map consists of key & value pairs
+    pub data: HashMap<String, String>, // a hash map consists of key & value pairs
     filename: String, // so the struct can be imported from a file
 }
 
