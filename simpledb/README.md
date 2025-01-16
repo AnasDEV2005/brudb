@@ -1,9 +1,12 @@
 
 # simpleDB | key value database file store
 
-Checkout colondb folder for multiple column support.
-Make sure you clone this repo inside the directory you write in the cargo.toml's ``[dependencies]  simple_db = ...``
-May still contain issues, havent tested enough.
+Checkout colondb crate for multiple column support.
+
+
+> [!NOTE]
+> The simple_db struct is not the database itself, 
+> its just a way to apply changes to the .txt where the database is saved
 
 ---
 ### usage
@@ -11,14 +14,8 @@ May still contain issues, havent tested enough.
 <p>
 add to Cargo.toml
 
-```toml
-[package]
-name = "libtest"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-simple_db = { path = "../../simpledb" }
+```sh
+cargo add simple_db
 ```
 </p>
 
@@ -34,14 +31,13 @@ use simple_db::SimpleDB;
 #### Methods:
 find save file, or create one
 ```rust
-let mut database = SimpleDB::find_database("db.txt");
+let mut database = SimpleDB::find_database("db3.txt");
+let mut db = database.unwrap(); // this or handle the error
 ```
 You have to ``.to_string()`` input values.
-Check example.
-
-add (key, value) pair
+Like so:
 ```rust
-database.insert_into_db(key, value);
+database.insert_into_db(key, value); // add key value pair to database
 ```
 get value by id (key)
 ```rust
@@ -53,4 +49,13 @@ delete value by key
 database.delete_from_db(key)
 ```
 
+sort the database
+```rust
+db.sort_by_key();
+db.sort_by_value();
+```
 
+print db 
+```rust
+db.print_db()
+```

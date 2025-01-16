@@ -23,7 +23,7 @@ impl SimpleDB {
 
     fn load_data_from_file(&mut self) -> Result<()> {
         if !Path::new(&self.filename).exists() {
-            return Ok(()); // No file to load; not an error
+            return Ok(());
         }
 
         let file = File::open(&self.filename)
