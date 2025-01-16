@@ -55,6 +55,11 @@ db.sort_by_key();
 db.sort_by_value();
 ```
 
+to edit the data yourself:
+```rust
+db.data... // the data here is an indexmap of string: string
+```
+
 print db 
 ```rust
 db.print_db()
