@@ -5,3 +5,7 @@ edition = "2021"
 
 [lib]
 path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.95"
+indexmap = "2.7.0"

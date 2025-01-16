@@ -1,65 +1,125 @@
-use::std::collections::HashMap;
+
+use anyhow::{Context, Result};
+use indexmap::IndexMap;
 use std::fs::{OpenOptions, File};
-use std::io::{self, Write, BufReader, BufRead};
+use std::io::{Write, BufReader, BufRead}; // self ?
 use std::path::Path;
 
+
 pub struct SimpleDB {
-    pub data: HashMap<String, String>, // a hash map consists of key & value pairs
+    pub data: IndexMap<String, String>, // a hash map consists of key & value pairs
     filename: String, // so the struct can be imported from a file
 }
 
 impl SimpleDB {
-    pub fn find_database(file_name: &str) -> Self {
+    pub fn find_database(file_name: &str) -> Result<Self> {
         let mut data_base = SimpleDB {
-            data: HashMap::new(),
+            data: IndexMap::new(),
             filename: file_name.to_string(),
         };
-        data_base.load_data_from_file();
-        data_base
+        data_base.load_data_from_file()?;
+        Ok(data_base)
     }
 
-    fn load_data_from_file(&mut self) {
+    fn load_data_from_file(&mut self) -> Result<()> {
         if !Path::new(&self.filename).exists() {
-            return;
+            return Ok(()); // No file to load; not an error
         }
-        let file = File::open(&self.filename).expect("Couldn't open File...");
+
+        let file = File::open(&self.filename)
+            .with_context(|| format!("Failed to open file: {}", &self.filename))?;
         let file_reader = BufReader::new(file);
 
         for row in file_reader.lines() {
-            if let Ok(entry) = row {
-                let parts: Vec<&str> = entry.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    self.data.insert(parts[0].to_string(), parts[1].to_string());
-                }
+            let entry = row.with_context(|| "Failed to read a line from the file")?;
+            let parts: Vec<&str> = entry.splitn(2, ':').collect();
+            if parts.len() == 2 {
+                self.data.insert(parts[0].to_string(), parts[1].to_string());
             }
         }
+
+        Ok(())
     }
     
-    /// Saves the current state of the HashMap to the file
-    pub fn save_data_to_file(&self) -> io::Result<()> {
+    pub fn save_data_to_file(&self) -> Result<()> {
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&self.filename)?;
+            .open(&self.filename)
+            .with_context(|| format!("Failed to open file for writing: {}", &self.filename))?;
 
         for (key, value) in &self.data {
-            writeln!(file, "{}:{}", key, value)?;
+            writeln!(file, "{}:{}", key, value)
+                .with_context(|| format!("Failed to write key-value pair to file: {}:{}", key, value))?;
         }
         Ok(())
     }
 
-    pub fn insert_into_db(&mut self, key: String, value: String) {
+    pub fn insert_into_db(&mut self, key: String, value: String) -> Result<()> {
         self.data.insert(key, value);
-        self.save_data_to_file().expect("Failed to save Data...");
+        self.save_data_to_file().with_context(|| "Failed to save data after insertion")?;
+        Ok(())
     }
 
     pub fn get_value_from_db(&self, key: &str) -> Option<&String> {
         self.data.get(key)
     }
 
-    pub fn delete_from_db(&mut self, key: &str) {
-        self.data.remove(key);
-        self.save_data_to_file().expect("Failed to save Data to File.");
+    pub fn sort_by_key(&mut self) -> Result<(), String> {
+        if self.data.is_empty() {
+            return Err("Database is empty. No sorting needed.".to_string());
+        }
+
+        let mut sorted: Vec<_> = self.data.clone().into_iter().collect();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0)); 
+
+        self.data.clear();
+        for (key, value) in sorted {
+            self.data.insert(key, value);
+        }
+
+        if let Err(e) = self.save_data_to_file() {
+            return Err(format!("Error saving sorted data to file: {}", e));
+        }
+
+        Ok(())
     }
+
+    pub fn sort_by_value(&mut self) -> Result<(), String> {
+        if self.data.is_empty() {
+            return Err("Database is empty. No sorting needed.".to_string());
+        }
+
+        let mut sorted: Vec<_> = self.data.clone().into_iter().collect();
+        sorted.sort_by(|a, b| a.1.cmp(&b.1)); 
+
+        self.data.clear();
+        for (key, value) in sorted {
+            self.data.insert(key, value);
+        }
+
+        if let Err(e) = self.save_data_to_file() {
+            return Err(format!("Error saving sorted data to file: {}", e));
+        }
+
+        Ok(())
+    }
+
+    pub fn delete_from_db(&mut self, key: &str) -> Result<()> {
+        if self.data.shift_remove(key).is_none() {
+            anyhow::bail!("Key '{}' does not exist in the database", key);
+        }
+        self.save_data_to_file()
+            .with_context(|| "Failed to save data after deletion")?;
+        Ok(())
+    }
+
+    pub fn print_db(&self) {
+        for (key, value) in &self.data {
+            println!("{}: {}", key, value);
+        }
+    }
+
 }
+
