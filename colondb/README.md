@@ -14,14 +14,8 @@ add to Cargo.toml <br>
 (edit the path as suits you)
 </p>
 
-```toml
-[package]
-name = "libtest"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-colon_db = { path = "../../colondb" }
+```sh
+cargo add colon_db
 ```
 </p>
 
@@ -44,16 +38,20 @@ Check example.
 
 add item or row
 ```rust
-database.insert_item_into_db("01".to_string(),"age".to_string(), "18".to_string());
-database.insert_item_into_db("01".to_string(),"salary".to_string(), "0".to_string());
+database.append_row_to_db("23".to_string(),vec!["a".to_string(),"12".to_string(),"3000".to_string()]);
 
-database.insert_row_into_db("02".to_string(),vec!["alan".to_string(),"12".to_string(),"23".to_string()]);
+database.insert_item_into_db("21".to_string(),"name".to_string(), "kak".to_string());
+database.insert_item_into_db("21".to_string(),"age".to_string(), "18".to_string());
+```
+
+append a column
+```rust
+db.append_column("status".to_string(), "citizen".to_string());
 ```
 
 select a range from the db (0 to total number of rows, vector with column names)
 ```rust
-let newdb = database.select_data(Some(0..4), vec!["name".to_string(),"age".to_string()].into());
-// None on either selects all available range
+let newdb = database.select_data(Some(4..17), vec!["name".to_string(), "salary".to_string()].into());
 ```
 
 get item by key, column
@@ -62,10 +60,8 @@ println!("{}",database.select_item("01", "age").unwrap())
 ```
 
 
-delete item, row, column
+delete a row
 ```rust
-database.delete_column("salary".to_string());
-database.delete_item("08", "name".to_string());
 database.delete_row("09");
 ```
 

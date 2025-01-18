@@ -1,0 +1,13 @@
+04:Anna,3500,status
+05:Tom,5000,citizen
+06:Lucy,3200,citizen
+07:Jack,6000,citizen
+08:Emma,2800,citizen
+09:Chris,4200,citizen
+10:Sophia,3700,citizen
+11:Liam,3900,citizen
+12:Olivia,2900,citizen
+13:Noah,4800,citizen
+14:Ava,2200,citizen
+15:Ethan,4600,citizen
+16:Isabella,4700,citizen

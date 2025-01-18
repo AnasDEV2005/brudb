@@ -2,11 +2,59 @@ use indexmap::IndexMap;
 use std::fs::{OpenOptions, File};
 use std::io::{self, Write, BufReader, BufRead};
 use std::path::Path;
+use thiserror::Error;
+use anyhow::{Context, Result};
+
+
+
+
+#[derive(Error, Debug)]
+pub enum DataStoreError {
+
+    #[error("data store disconnected")]
+    Disconnect(#[from] io::Error),
+
+    #[error("the data for key `{0}` is not available")]
+    Redaction(String),
+
+    #[error("header length doesnt match row length")]
+    InvalidRowLength,
+
+    #[error("unknown data store error")]
+    Unknown,
+     
+    #[error("could not find column and/or key in database")]
+    CoordinatesNotFound,   
+
+    #[error("invalid selection range (expected {expected:?}, found {found:?})")]
+    InvalidSelectionRange {
+        expected: String,
+        found: String,
+    },
+
+    #[error("tried to load data from a filename that does not exists")]
+    Filename,
+
+    #[error("invalid header (expected {expected:?}, found {found:?})")]
+    InvalidHeader {
+        expected: String,
+        found: String,
+    },
+
+    #[error("duplicate column name `{0}`")]
+    DuplicateColumn(String),
+}
+
+
+
 
 pub struct ColonDB {
-    pub data: IndexMap<String, Vec<String>>, // a hash map consists of key & value pairs
-    filename: String, // so the struct can be imported from a file
+    pub data: IndexMap<String, Vec<String>>, 
+    filename: String, 
 }
+
+
+
 
 impl ColonDB {
 
@@ -15,259 +63,284 @@ impl ColonDB {
             data: IndexMap::new(),
             filename: file_name.to_string(),
         };
-        data_base.load_data_from_file();
+        let _ = data_base.load_data_from_file();
         data_base
     }
 
+
     fn column_name_toindex(&self, column: &str, header: &[String]) -> Option<usize> {
-        header.iter().position(|col| col == column)
+        if column == "key" {
+            return Some(0); 
+        }
+
+        header.iter().position(|col| col == column).map(|idx| idx + 1)
     }
 
 
-    fn load_data_from_file(&mut self) {
+    fn load_data_from_file(&mut self) -> Result<(), DataStoreError> {
         if !Path::new(&self.filename).exists() {
-            return;
+            return Err(DataStoreError::Filename);
         }
         let file = File::open(&self.filename).expect("Couldn't open File...");
-        let file_reader = BufReader::new(file); // reads file to a string. with lines
+        let file_reader = BufReader::new(file); 
 
         for row in file_reader.lines() {
             if let Ok(entry) = row {
-                let sep_keyvalue: Vec<&str> = entry.splitn(2, ':').collect(); // separating key and value by :
+                let sep_keyvalue: Vec<&str> = entry.splitn(2, ':').collect(); 
                 
                 if sep_keyvalue.len() == 2 {
                     let key = sep_keyvalue[0].to_string();
                     let values_str = sep_keyvalue[1];
-                    // convert values string to vec by splitting at comma
                     let values: Vec<String> = values_str.split(',').map(|s| s.to_string()).collect();
                     
                     self.data.insert(key, values);
                 }
             }
         }
+    return Ok(())
     }
 
-
     
-    pub fn save_data_to_file(&self) -> io::Result<()> {
+    pub fn save_data_to_file(&self) -> Result<()> {
+       
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&self.filename)?;
+            .open(&self.filename)
+            .with_context(|| format!("Failed to open file for writing: {}", &self.filename))?;
         
         for (key, values) in &self.data {
             let values_str = values.join(",");
-            writeln!(file, "{}:{}", key, values_str)?;
+            writeln!(file, "{}:{}", key, values_str)
+                .with_context(|| format!("Failed to write key-values pair to file: {}:{}", key, values_str))?;
         }
+        return Ok(())
+    }
+
+
+    pub fn set_header(&mut self, key: String, values: Vec<String>) -> Result<(), DataStoreError> {
+        if values.is_empty() {
+            return Err(DataStoreError::InvalidHeader {
+                expected: "non-empty values".to_string(),
+                found: "empty vector".to_string(),
+            });
+        }
+
+        if self.data.contains_key(&key) {
+            self.data.remove(&key);
+        }
+
+        let mut new_data = IndexMap::new();
+        new_data.insert(key.clone(), values);
+
+        for (existing_key, existing_values) in &self.data {
+            new_data.insert(existing_key.clone(), existing_values.clone());
+        }
+
+        self.data = new_data;
+
+        self.save_data_to_file();
         Ok(())
     }
 
-//###################################################################################################################################
-// IT WORKS DONT TOUCH ##############################################################################################################
-//###################################################################################################################################
-    pub fn insert_item_into_db(&mut self, key: String, column: String, value: String) {
+
+    pub fn insert_item_into_db(
+        &mut self, 
+        key: String, 
+        column: String, 
+        value: String
+    ) -> Result<(), DataStoreError> {
         let header: Vec<String> = self.data.values().next().cloned().unwrap_or_default();
-        if let Some(index) = self.column_name_toindex(&column, &header) {
-            // Get or create the row for the key
-            let row = self.data.entry(key).or_insert_with(|| vec![String::new(); header.len()]);
-
-            // Update the value at the corresponding index
-            if index < row.len() {
-                row[index] = value;
-            } else {
-                eprintln!("Index out of bounds: column '{}'", column);
+        let index = match self.column_name_toindex(&column, &header) {
+            Some(idx) => idx,
+            None => {
+                println!("Column '{}' not found in header!", column);
+                return Err(DataStoreError::CoordinatesNotFound);
             }
+        };
 
-            // Save changes to the file
-            self.save_data_to_file().expect("Failed to save Data...");
+        let row = self.data.entry(key).or_insert_with(|| vec![String::new(); header.len()]);
+
+        if index-1 < row.len() {
+            row[index-1] = value;
         } else {
-            eprintln!("Column '{}' not found in header!", column);
+            println!("Index out of bounds: column '{}'", column);
+            return Err(DataStoreError::CoordinatesNotFound);
         }
+
+        self.save_data_to_file();
+        Ok(())
     }
 
-    pub fn insert_row_into_db(&mut self, key: String, entry_vec: Vec<String>) {
-        let header: Vec<String> = self.data.values().next().cloned().unwrap_or_default();
 
-        // Ensure the header and entry_vec have the same length
-        if entry_vec.len() != header.len() {
-            eprintln!(
-                "Entry vector length ({}) does not match header length ({}).",
-                entry_vec.len(),
-                header.len()
-            );
-            return;
-        }
+    pub fn append_row_to_db(
+        &mut self, 
+        key: String, 
+        entry_vec: Vec<String>
+        ) -> Result<(), DataStoreError> {
 
-
-        // Insert or overwrite the entire row for the given key
         self.data.insert(key, entry_vec);
-
-        // Save changes to the file
-        self.save_data_to_file().expect("Failed to save Data...");
-
-    }
-//####################################################################################################################################
-//####################################################################################################################################
-
-
-
-    pub fn delete_item(&mut self, key: &str, column: String) {
-        // Get the header (the first row's keys)
-        let header: Vec<String> = self.data.values().next().cloned().unwrap_or_default();
-        
-        // Get the index of the column in the header
-        if let Some(index) = self.column_name_toindex(&column, &header) {
-            if let Some(row) = self.data.get_mut(key) {
-                // Set the value to an empty string (or any other placeholder)
-                row[index] = String::new();
-                
-                // Save changes to the file
-                self.save_data_to_file().expect("Failed to save Data to File.");
-            } else {
-                eprintln!("Key '{}' not found in database!", key);
-            }
-        } else {
-            eprintln!("Column '{}' not found in header!", column);
-        }
+        let _ = self.save_data_to_file();
+        return Ok(())
     }
 
-    pub fn delete_column(&mut self, column: String) {
-        // Get the header (the first row's keys)
-        let header: Vec<String> = self.data.values().next().cloned().unwrap_or_default();
-        
-        // Get the index of the column in the header
-        if let Some(index) = self.column_name_toindex(&column, &header) {
-            // Iterate through all rows (keys)
-            for (_, row) in self.data.iter_mut() {
-                // Remove the value at the specified index
-                if index < row.len() {
-                    row[index] = String::new(); // You can replace with an empty value or something else
-                }
-            }
     
-            // Save the changes to the file
-            self.save_data_to_file().expect("Failed to save Data to File.");
-        } else {
-            eprintln!("Column '{}' not found in header!", column);
-        }
-    }
-    
-    
-    pub fn delete_row(&mut self, key: &str) {
+    pub fn delete_row(&mut self, key: &str) -> Result<(), DataStoreError>  {
         if self.data.remove(key).is_some() {
-            // Successfully removed the row
-            self.save_data_to_file().expect("Failed to save Data to File.");
+            let _ = self.save_data_to_file();
         } else {
             eprintln!("Key '{}' not found in database!", key);
+            return Err(DataStoreError::CoordinatesNotFound)
         }
+        return Ok(())
     }
     
-    pub fn select_item(
+
+    pub fn get_item(
         &self, 
-        key: &str, // ID (key) of the row
-        column: &str // Column name to filter
-    ) -> Option<String> {
+        key: &str, 
+        column: &str 
+    ) -> Result<String, DataStoreError> {
+
         let header: Vec<String> = self.data.values().next().cloned().unwrap_or_default();
         
-        // Find the index of the column
         if let Some(index) = self.column_name_toindex(column, &header) {
-            // Check if the specified key exists in the data
             if let Some(row) = self.data.get(key) {
-                // Get the value at the specified column index
                 if index < row.len() {
-                    return Some(row[index].clone()); // Return the value at the specified index
+                    return Ok(row[index].clone());
+                } else {
+                    eprintln!("Key '{}' not found in database!", key);
+                    return Err(DataStoreError::CoordinatesNotFound)
                 }
+
             } else {
-                eprintln!("Key '{}' not found in database!", key);
+                eprintln!("Column '{}' not found in header!", column);
+                return Err(DataStoreError::CoordinatesNotFound)
             }
-        } else {
-            eprintln!("Column '{}' not found in header!", column);
         }
-    
-        // Return None if key or column not found, or index is out of bounds
-        None
+        Ok("".to_string())
     }
     
-    
+
+    pub fn append_column(&mut self, column_name: String, default_value: String) -> Result<(), DataStoreError> {
+        let mut header = self.data.values().next().cloned().unwrap_or_default();
+        
+        if header.contains(&column_name) {
+            return Err(DataStoreError::DuplicateColumn(column_name));
+        }
+
+        header.push(column_name.clone());
+        
+        for row in self.data.values_mut() {
+            row.push(default_value.clone());
+        }
+
+        let mut comp_data = self.data.clone();
+
+        if let Some((key, _)) = comp_data.iter_mut().next() {
+            self.data.insert(key.clone(), header);
+        }
+
+        self.save_data_to_file();
+
+        Ok(())
+    }
+
+
     pub fn select_data(
-        &self, 
-        row_range: Option<std::ops::Range<usize>>, // A range of indices to select rows
-        column_range: Option<Vec<String>> // A list of column names to select
-    ) -> ColonDB {
+        &self,
+        row_range: Option<std::ops::Range<usize>>,
+        column_range: Option<Vec<String>>,
+    ) -> Result<ColonDB, DataStoreError> {
         let header: Vec<String> = self.data.values().next().cloned().unwrap_or_default();
         let mut result = Vec::new();
-        
-        // If column_range is provided, map column names to their indices
-        let column_indices: Vec<usize> = if let Some(columns) = column_range {
-            columns.iter()
-                .filter_map(|column| self.column_name_toindex(column, &header))
+
+        let col_range = column_range.clone();
+        let column_indices: Vec<Option<usize>> = if let Some(columns) = column_range {
+            columns
+                .iter()
+                .map(|column| self.column_name_toindex(column, &header))
                 .collect()
         } else {
-            (0..header.len()).collect() // If no columns are specified, select all columns
+            (0..header.len()).map(Some).collect()
         };
-        
-        // Convert the data into a Vec of (key, row) so we can access rows by index
-        let rows: Vec<(String, Vec<String>)> = self.data.iter()
+
+        if column_indices.contains(&None) {
+            let missing_columns: Vec<String> = col_range
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|column| self.column_name_toindex(column, &header).is_none())
+                .collect();
+
+            return Err(DataStoreError::InvalidSelectionRange {
+                expected: format!("Valid column names from header: {:?}", header),
+                found: format!("Missing columns: {:?}", missing_columns),
+            });
+        }
+
+        let column_indices: Vec<usize> = column_indices
+            .into_iter()
+            .flatten()
+            .filter(|&index| index > 0) 
+            .map(|index| index - 1)
+            .collect();
+
+
+        let rows: Vec<(String, Vec<String>)> = self
+            .data
+            .iter()
             .map(|(key, row)| (key.clone(), row.clone()))
             .collect();
-        
-        // Get the row range, defaulting to all rows if row_range is None
+
         let row_range = row_range.unwrap_or(0..rows.len());
-        
-        // Iterate through the rows within the row_range
+
+        if row_range.end > rows.len() {
+            return Err(DataStoreError::InvalidSelectionRange {
+                expected: format!("row range within 0..{}", rows.len()),
+                found: format!("end of range {}", row_range.end),
+            });
+        }
+
         for (key, row) in rows.iter().skip(row_range.start).take(row_range.len()) {
-            // Slice the row based on the column indices
-            let selected_columns: Vec<String> = column_indices.iter()
-                .filter_map(|&index| row.get(index).cloned()) // Get values for each specified column index
+            let selected_columns: Vec<String> = column_indices
+                .iter()
+                .filter_map(|&index| row.get(index).cloned())
                 .collect();
-            
-            // Add the selected row to the result
+
             result.push((key.clone(), selected_columns));
         }
-        
-        // Create a new SimpleDB object from the selected data
+
         let mut new_db = ColonDB {
             data: IndexMap::new(),
-            filename: self.filename.clone(), // You may want to keep the same filename or modify as needed
+            filename: self.filename.clone(),
         };
-    
-        // Populate the new SimpleDB with the selected rows
+
         for (key, row) in result {
             new_db.data.insert(key, row);
         }
-        
-        // Return the new SimpleDB object
-        new_db
-    }
-    
-    
-    
 
+        Ok(new_db)
+    }
+
+    
     pub fn print_database(&self) {
-        // Loop through the data in the database
         for (key, row) in &self.data {
-            let mut line = format!("{key} || "); // Initialize line with the key
+            let mut line = format!("{key} || "); 
             
-            // Iterate over each value in the row
             for value in row.iter() {
                 if value.is_empty() {
-                    line.push_str("empty | "); // Append "empty |" if value is empty
+                    line.push_str("empty | "); 
                 } else {
-                    line.push_str(&format!("{value} | ")); // Append the actual value
+                    line.push_str(&format!("{value} | ")); 
                 }
             }
             
-            // Print the line for this row
             println!("{}", line);
             
-            // Print a separator line based on the length of the key and values
-            let separator = "-".repeat(line.len()); // Create a separator line of the same length
+            let separator = "-".repeat(line.len()); 
             println!("{}", separator);
         }
     }
-    
-    
-
 }
 

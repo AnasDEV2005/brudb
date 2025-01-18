@@ -7,7 +7,7 @@ use std::path::Path;
 
 
 pub struct SimpleDB {
-    pub data: IndexMap<String, String>, // a hash map consists of key & value pairs
+    pub data: IndexMap<String, String>, 
     filename: String, // so the struct can be imported from a file
 }
 
